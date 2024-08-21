@@ -93,6 +93,4 @@ public class SecurityConfig {
         };
     }
 
-    InMemoryUserDetailsManager userDetailsManager = new InMemoryUserDetailsManager();
-
 }

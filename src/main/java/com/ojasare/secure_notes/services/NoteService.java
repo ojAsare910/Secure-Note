@@ -10,5 +10,7 @@ public interface NoteService {
     Note updateNoteForUser(Long noteId, String content, String username);
 
     List<Note> getNotesForUser(String username);
+
+    List<Note> getAllNotes();
 }
 

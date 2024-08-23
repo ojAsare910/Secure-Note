@@ -1,22 +1,16 @@
 package com.ojasare.secure_notes.security.response;
 
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 
 import java.util.List;
 
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
 public class LoginResponse {
-    private String jwtToken;
-
     private String username;
     private List<String> roles;
-
-    public LoginResponse(String username, List<String> roles, String jwtToken) {
-        this.username = username;
-        this.roles = roles;
-        this.jwtToken = jwtToken;
-    }
-
+    private String jwtAccessToken;
+    private String jwtRefreshToken;
 }

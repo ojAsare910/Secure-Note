@@ -40,4 +40,10 @@ public class NoteServiceImpl implements NoteService {
                 .findByOwnerUsername(username);
         return personalNotes;
     }
+
+    @Override
+    public List<Note> getAllNotes() {
+        List<Note> notes = noteRepository.findAll();
+        return notes;
+    }
 }

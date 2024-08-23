@@ -21,6 +21,7 @@ public class NoteController {
 
     @PostMapping
     public Note createNote(@RequestBody String content, @AuthenticationPrincipal UserDetails userDetails) {
+
         String username = userDetails.getUsername();
         System.out.println("USER DETAILS: " + username);
         return noteService.createNoteForUser(username, content);
@@ -40,6 +41,11 @@ public class NoteController {
         String username = userDetails.getUsername();
         System.out.println("USER DETAILS: " + username);
         return noteService.updateNoteForUser(noteId, content, username);
+    }
+
+    @GetMapping("/all")
+    public List<Note> getAllNotes() {
+        return noteService.getAllNotes();
     }
 
 }

@@ -1,14 +1,10 @@
 package com.ojasare.secure_notes.security;
 
-import com.ojasare.secure_notes.models.AppRole;
-import com.ojasare.secure_notes.models.Role;
-import com.ojasare.secure_notes.models.User;
-import com.ojasare.secure_notes.repository.RoleRepository;
-import com.ojasare.secure_notes.repository.UserRepository;
-import com.ojasare.secure_notes.security.jwt.AuthEntryPointJwt;
-import com.ojasare.secure_notes.security.jwt.AuthTokenFilter;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.CommandLineRunner;
+import com.ojasare.secure_notes.security.jwt.JWTAuthenticationFilter;
+import com.ojasare.secure_notes.security.jwt.JWTAuthorizationFilter;
+import com.ojasare.secure_notes.security.jwt.JwtHelper;
+import com.ojasare.secure_notes.security.userConfig.UserDetailsServiceImpl;
+import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -16,45 +12,73 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 
-import java.time.LocalDate;
-
-import static org.springframework.security.config.Customizer.withDefaults;
 
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity(prePostEnabled = true,
+@RequiredArgsConstructor
+@EnableMethodSecurity(
         securedEnabled = true,
         jsr250Enabled = true)
 public class SecurityConfig {
 
-    @Autowired
-    private AuthEntryPointJwt unauthorizedHandler;
+    private final JwtHelper jwtHelper;
+
+    private final UserDetailsServiceImpl userDetailsService;
 
     @Bean
-    public AuthTokenFilter authenticationJwtTokenFilter() {
-        return new AuthTokenFilter();
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        configureCSRF(http);
+        configureHttpRequests(http);
+        configureSessionManagement(http);
+        configureAuthenticationFilter(http);
+        configureAuthorizationFilter(http);
+        configureOAuth2Login(http);
+        return http.build();
     }
 
-    @Bean
-    SecurityFilterChain defaultSecurityFilterChain(HttpSecurity http) throws Exception {
-        http.csrf(AbstractHttpConfigurer::disable);
+    private void configureCSRF(HttpSecurity http) throws Exception {
+        http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .ignoringRequestMatchers("/api/auth/public/**")
+        );
+    }
+
+    private void configureSessionManagement(HttpSecurity http) throws Exception {
+        http.sessionManagement(session -> session
+                .sessionCreationPolicy(SessionCreationPolicy.ALWAYS));
+    }
+
+    private void configureHttpRequests(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests((requests)
-                -> requests
+                ->  requests
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/api/csrf-token").permitAll()
                 .requestMatchers("/api/auth/public/**").permitAll()
+                .requestMatchers("/oauth/authorize").permitAll()
                 .anyRequest().authenticated());
-        http.exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler));
-        http.addFilterBefore(authenticationJwtTokenFilter(), UsernamePasswordAuthenticationFilter.class);
-        http.sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
-        http.httpBasic(withDefaults());
-        return http.build();
+    }
+
+    private void configureAuthenticationFilter(HttpSecurity http) throws Exception {
+        http.addFilter(new JWTAuthenticationFilter(authenticationManager(http.getSharedObject(AuthenticationConfiguration.class)), jwtHelper));
+    }
+
+    private void configureAuthorizationFilter(HttpSecurity http) throws Exception {
+        http.addFilterBefore(new JWTAuthorizationFilter(jwtHelper, userDetailsService), UsernamePasswordAuthenticationFilter.class);
+    }
+
+
+    private void configureOAuth2Login(HttpSecurity http) throws Exception {
+        http.oauth2Login(oauth2 -> oauth2
+                .loginPage("/api/auth/login")
+                .successHandler((request, response, authentication) -> response.sendRedirect("/api/auth/profile")))
+                .logout(logout -> logout
+                        .logoutUrl("/api/auth/logout").logoutSuccessUrl("/api/auth/login").permitAll());
     }
 
     @Bean
@@ -62,52 +86,8 @@ public class SecurityConfig {
         return authenticationConfiguration.getAuthenticationManager();
     }
 
-
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public CommandLineRunner initData(RoleRepository roleRepository,
-                                      UserRepository userRepository,
-                                      PasswordEncoder passwordEncoder) {
-        return args -> {
-            Role userRole = roleRepository.findByRoleName(AppRole.ROLE_USER)
-                    .orElseGet(() -> roleRepository.save(new Role(AppRole.ROLE_USER)));
-
-            Role adminRole = roleRepository.findByRoleName(AppRole.ROLE_ADMIN)
-                    .orElseGet(() -> roleRepository.save(new Role(AppRole.ROLE_ADMIN)));
-
-            if (!userRepository.existsByUserName("user1")) {
-                User user1 = new User("user1", "user1@example.com",
-                        passwordEncoder.encode("password1"));
-                user1.setAccountNonLocked(false);
-                user1.setAccountNonExpired(true);
-                user1.setCredentialsNonExpired(true);
-                user1.setEnabled(true);
-                user1.setCredentialsExpiryDate(LocalDate.now().plusYears(1));
-                user1.setAccountExpiryDate(LocalDate.now().plusYears(1));
-                user1.setTwoFactorEnabled(false);
-                user1.setSignUpMethod("email");
-                user1.setRole(userRole);
-                userRepository.save(user1);
-            }
-
-            if (!userRepository.existsByUserName("admin")) {
-                User admin = new User("admin", "admin@example.com",
-                        passwordEncoder.encode("adminPass"));
-                admin.setAccountNonLocked(true);
-                admin.setAccountNonExpired(true);
-                admin.setCredentialsNonExpired(true);
-                admin.setEnabled(true);
-                admin.setCredentialsExpiryDate(LocalDate.now().plusYears(1));
-                admin.setAccountExpiryDate(LocalDate.now().plusYears(1));
-                admin.setTwoFactorEnabled(false);
-                admin.setSignUpMethod("email");
-                admin.setRole(adminRole);
-                userRepository.save(admin);
-            }
-        };
     }
 }

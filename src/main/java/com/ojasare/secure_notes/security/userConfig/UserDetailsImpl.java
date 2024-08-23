@@ -1,4 +1,4 @@
-package com.ojasare.secure_notes.security.services;
+package com.ojasare.secure_notes.security.userConfig;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.ojasare.secure_notes.models.User;
@@ -9,6 +9,7 @@ import lombok.Setter;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
 
 import java.util.Collection;
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.Objects;
 @NoArgsConstructor
 @Getter
 @Setter
+@Service
 public class UserDetailsImpl implements UserDetails {
     private static final long serialVersionUID = 1L;
 

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Profile Page</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7fa;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .profile-container {
+            background-color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 {
+            color: #0066FF;
+            margin-bottom: 1rem;
+        }
+        p {
+            color: #555;
+            margin-bottom: 0.5rem;
+        }
+        img {
+            border-radius: 50%;
+            margin: 1rem 0;
+            max-width: 150px;
+        }
+    </style>
+</head>
+<body>
+<div class="profile-container">
+    <h1>Your Profile</h1>
+    <img th:if="${picture}" th:src="${picture}" alt="Profile Picture" />
+    <p th:text="'Name: ' + ${name}"></p>
+    <p th:text="'Email: ' + ${email}"></p>
+</div>
+</body>
+</html>

@@ -5,10 +5,12 @@ import com.ojasare.secure_notes.models.Role;
 import com.ojasare.secure_notes.models.User;
 import com.ojasare.secure_notes.repository.RoleRepository;
 import com.ojasare.secure_notes.repository.UserRepository;
+import com.ojasare.secure_notes.security.jwt.JwtUtils;
 import com.ojasare.secure_notes.security.request.LoginRequest;
 import com.ojasare.secure_notes.security.request.SignupRequest;
 import com.ojasare.secure_notes.security.response.LoginResponse;
 import com.ojasare.secure_notes.security.response.MessageResponse;
+import com.ojasare.secure_notes.security.response.UserInfoResponse;
 import com.ojasare.secure_notes.services.UserService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -17,13 +19,11 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -36,6 +36,8 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    private JwtUtils jwtUtils;
+
     private AuthenticationManager authenticationManager;
 
     private UserRepository userRepository;
@@ -46,7 +48,11 @@ public class AuthController {
 
     private UserService userService;
 
-    public AuthController(AuthenticationManager authenticationManager, UserRepository userRepository, PasswordEncoder encoder, RoleRepository roleRepository, UserService userService) {
+
+    public AuthController(JwtUtils jwtUtils, AuthenticationManager authenticationManager,
+                          UserRepository userRepository, PasswordEncoder encoder,
+                          RoleRepository roleRepository, UserService userService) {
+        this.jwtUtils = jwtUtils;
         this.authenticationManager = authenticationManager;
         this.userRepository = userRepository;
         this.encoder = encoder;
@@ -58,7 +64,8 @@ public class AuthController {
     public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest) {
         Authentication authentication;
         try {
-            authentication = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword()));
+            authentication = authenticationManager
+                    .authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
         } catch (AuthenticationException exception) {
             Map<String, Object> map = new HashMap<>();
             map.put("message", "Bad credentials");
@@ -66,17 +73,22 @@ public class AuthController {
             return new ResponseEntity<Object>(map, HttpStatus.NOT_FOUND);
         }
 
-        // Set the authentication
+//      set the authentication
         SecurityContextHolder.getContext().setAuthentication(authentication);
+
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
 
+        String jwtToken = jwtUtils.generateTokenFromUsername(userDetails);
 
         // Collect roles from the UserDetails
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(item -> item.getAuthority())
                 .collect(Collectors.toList());
 
-        LoginResponse response = new LoginResponse(userDetails.getUsername(), roles);
+        // Prepare the response body, now including the JWT token directly in the body
+        LoginResponse response = new LoginResponse(userDetails.getUsername(), roles, jwtToken);
+
+        // Return the response entity with the JWT token included in the response body
         return ResponseEntity.ok(response);
     }
 
@@ -124,5 +136,30 @@ public class AuthController {
         userRepository.save(user);
 
         return ResponseEntity.ok(new MessageResponse("User registered successfully!"));
+    }
+
+    @GetMapping("/user")
+    public ResponseEntity<?> getUserDetails(@AuthenticationPrincipal UserDetails userDetails) {
+        User user = userService.findByUsername(userDetails.getUsername());
+
+        List<String> roles = userDetails.getAuthorities().stream()
+                .map(item -> item.getAuthority())
+                .collect(Collectors.toList());
+
+        UserInfoResponse response = new UserInfoResponse(
+                user.getUserId(),
+                user.getUserName(),
+                user.getEmail(),
+                user.isAccountNonLocked(),
+                user.isAccountNonExpired(),
+                user.isCredentialsNonExpired(),
+                user.isEnabled(),
+                user.getCredentialsExpiryDate(),
+                user.getAccountExpiryDate(),
+                user.isTwoFactorEnabled(),
+                roles
+        );
+
+        return ResponseEntity.ok().body(response);
     }
 }

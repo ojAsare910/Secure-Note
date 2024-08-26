@@ -1,30 +1,41 @@
 package com.ojasare.secure_notes.controllers;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ojasare.secure_notes.models.AppRole;
 import com.ojasare.secure_notes.models.Role;
 import com.ojasare.secure_notes.models.User;
 import com.ojasare.secure_notes.repository.RoleRepository;
 import com.ojasare.secure_notes.repository.UserRepository;
-import com.ojasare.secure_notes.security.jwt.JwtUtils;
+import com.ojasare.secure_notes.security.jwt.JwtHelper;
+import com.ojasare.secure_notes.security.jwt.constant.JWTUtil;
 import com.ojasare.secure_notes.security.request.LoginRequest;
 import com.ojasare.secure_notes.security.request.SignupRequest;
 import com.ojasare.secure_notes.security.response.LoginResponse;
 import com.ojasare.secure_notes.security.response.MessageResponse;
 import com.ojasare.secure_notes.security.response.UserInfoResponse;
+import com.ojasare.secure_notes.security.userConfig.UserDetailsServiceImpl;
 import com.ojasare.secure_notes.services.UserService;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.ModelAndView;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
@@ -34,59 +45,44 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/auth")
+@RequiredArgsConstructor
 public class AuthController {
 
-    private JwtUtils jwtUtils;
-
-    private AuthenticationManager authenticationManager;
-
-    private UserRepository userRepository;
-
-    private PasswordEncoder encoder;
-
-    private RoleRepository roleRepository;
-
-    private UserService userService;
-
-
-    public AuthController(JwtUtils jwtUtils, AuthenticationManager authenticationManager,
-                          UserRepository userRepository, PasswordEncoder encoder,
-                          RoleRepository roleRepository, UserService userService) {
-        this.jwtUtils = jwtUtils;
-        this.authenticationManager = authenticationManager;
-        this.userRepository = userRepository;
-        this.encoder = encoder;
-        this.roleRepository = roleRepository;
-        this.userService = userService;
-    }
+    private final AuthenticationManager authenticationManager;
+    private final UserRepository userRepository;
+    private final PasswordEncoder encoder;
+    private final RoleRepository roleRepository;
+    private final UserService userService;
+    private final JwtHelper jwtHelper;
+    private final UserDetailsServiceImpl userDetailsService;
 
     @PostMapping("/public/signin")
     public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest) {
         Authentication authentication;
         try {
             authentication = authenticationManager
-                    .authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword()));
+                    .authenticate(new UsernamePasswordAuthenticationToken(loginRequest.getUsernameOrEmail(), loginRequest.getPassword()));
         } catch (AuthenticationException exception) {
             Map<String, Object> map = new HashMap<>();
             map.put("message", "Bad credentials");
             map.put("status", false);
             return new ResponseEntity<Object>(map, HttpStatus.NOT_FOUND);
         }
-
-//      set the authentication
+        // set the authentication
         SecurityContextHolder.getContext().setAuthentication(authentication);
 
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-
-        String jwtToken = jwtUtils.generateTokenFromUsername(userDetails);
 
         // Collect roles from the UserDetails
         List<String> roles = userDetails.getAuthorities().stream()
                 .map(item -> item.getAuthority())
                 .collect(Collectors.toList());
 
-        // Prepare the response body, now including the JWT token directly in the body
-        LoginResponse response = new LoginResponse(userDetails.getUsername(), roles, jwtToken);
+        String jwtAccessToken = jwtHelper.generateAccessToken(userDetails.getUsername(), roles);
+        String jwtRefreshToken = jwtHelper.generateRefreshToken(userDetails.getUsername());
+
+        // Prepare the response body, now including the JWT tokens directly in the body
+        LoginResponse response = new LoginResponse(userDetails.getUsername(), roles, jwtAccessToken, jwtRefreshToken);
 
         // Return the response entity with the JWT token included in the response body
         return ResponseEntity.ok(response);
@@ -162,4 +158,42 @@ public class AuthController {
 
         return ResponseEntity.ok().body(response);
     }
+
+    @GetMapping("/login")
+    public ModelAndView login() {
+        return new ModelAndView("login");
+    }
+
+    @GetMapping("/logout")
+    public ModelAndView logout() {
+        return new ModelAndView("login");
+    }
+
+    @GetMapping("/profile")
+    public ModelAndView profile(Model model, @AuthenticationPrincipal OAuth2User principal) {
+        if (principal != null) {
+            model.addAttribute("name", principal.getAttribute("name"));
+            model.addAttribute("email", principal.getAttribute("email"));
+            model.addAttribute("picture", principal.getAttribute("picture"));
+        } else {
+            model.addAttribute("name", "No name available");
+            model.addAttribute("email", "No email available");
+        }
+        return new ModelAndView("profile");
+    }
+
+    @GetMapping("/public/refresh-token")
+    public void generateNewAccessToken(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String jwtRefreshToken = jwtHelper.extractTokenFromHeaderIfExists(request.getHeader(JWTUtil.AUTH_HEADER));
+        if(jwtRefreshToken != null &&  jwtHelper.validateJwtToken(jwtRefreshToken)) {
+            String username = jwtHelper.getUserNameFromJwtToken(jwtRefreshToken);
+            UserDetails user = userDetailsService.loadUserByUsername(username);
+            String jwtAccessToken = jwtHelper.generateAccessToken(user.getUsername(), user.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList()));
+            response.setContentType("application/json");
+            new ObjectMapper().writeValue(response.getOutputStream(), jwtHelper.getTokensMap(jwtAccessToken, jwtRefreshToken));
+        } else {
+            throw new RuntimeException("Refresh token required");
+        }
+    }
+
 }
